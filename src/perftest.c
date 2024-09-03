@@ -249,18 +249,16 @@ int main(int argc, char *argv[])
     int32_t sended_old = 0;
     int32_t readed_old = 0;
 
-    printf("Min:Sec Sended Readed\n");
+    printf("Min:Sec Send_RPS Read_RPS Sended Readed Diff \n");
     while (1) {
         sleep(1);
 
         time_t now = time(NULL);
         struct tm *tm_struct = localtime(&now);
-        printf("%d:%d %d %d\n", tm_struct->tm_min, tm_struct->tm_sec, sended - sended_old,
-               readed - readed_old);
+        printf("%d:%d %d %d %d %d %d\n", tm_struct->tm_min, tm_struct->tm_sec, sended - sended_old,
+               readed - readed_old, sended, readed, sended - readed);
 
-        coeff = (1.0 * rps) / (sended - sended_old);
-
-        printf("%lf\n", coeff);
+        coeff *= (1.0 * rps) / (sended - sended_old);
 
         sended_old = sended;
         readed_old = readed;
