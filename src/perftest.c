@@ -21,7 +21,7 @@ double coeff = 1;
 struct sockaddr_in repeater_addr, dns_addr;
 int repeater_socket;
 
-void print_help()
+void print_help(void)
 {
     printf("Commands:\n"
            "-file /example.txt            Domains file path\n"
