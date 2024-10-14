@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.6)
 project(dns-perftest)
-add_compile_options(-Wall -Wextra -Werror)
+add_compile_options(-Wall -Wextra -Werror -Wpedantic)
 add_link_options()
 include_directories(include) 
 add_executable(dns-perftest src/perftest.c)
