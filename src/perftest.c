@@ -1,6 +1,7 @@
 #include "perftest.h"
 
 FILE *fp;
+FILE *cache_fp;
 
 uint32_t dns_ip;
 uint16_t dns_port;
@@ -13,13 +14,15 @@ uint32_t rps;
 int32_t is_domains_file_path;
 char domains_file_path[PATH_MAX];
 
+int32_t is_save;
+
 int32_t sended;
 int32_t readed;
 
 double coeff = 1;
 
 struct sockaddr_in repeater_addr, dns_addr;
-int repeater_socket;
+int32_t repeater_socket;
 
 void print_help(void)
 {
@@ -27,14 +30,15 @@ void print_help(void)
            "-file /example.txt            Domains file path\n"
            "-DNS 0.0.0.0:00               DNS address\n"
            "-listen 0.0.0.0:00            Listen address\n"
-           "-RPS 00000                    Request per second\n");
+           "-RPS 00000                    Request per second\n"
+           "-save                         Save DNS ans to cache.data\n");
     exit(EXIT_FAILURE);
 }
 
 void *send_dns(__attribute__((unused)) void *arg)
 {
     char packet[PACKET_MAX_SIZE], line_buf[PACKET_MAX_SIZE];
-    int line_count = 0;
+    int32_t line_count = 0;
 
     while (fscanf(fp, "%s", line_buf) != EOF) {
         line_count++;
@@ -48,7 +52,7 @@ void *send_dns(__attribute__((unused)) void *arg)
         header->auth = htons(0);
         header->add = htons(0);
 
-        int k = 0;
+        int32_t k = 0;
         char *dot_pos_new = line_buf;
         char *dot_pos_old = line_buf;
         while ((dot_pos_new = strchr(dot_pos_old + 1, '.')) != NULL) {
@@ -219,17 +223,21 @@ void *read_dns(__attribute__((unused)) void *arg)
         }
         cur_pos_ptr = que_url_end;
 
-        //printf("%s\n", que_url.data + 1);
+        if (is_save) {
+            fwrite(que_url.data + 1, sizeof(char), strlen(que_url.data), cache_fp);
+            fwrite(&receive_msg.size, sizeof(int32_t), 1, cache_fp);
+            fwrite(receive_msg.data, sizeof(char), receive_msg.size, cache_fp);
+        }
     }
 
     return NULL;
 }
 
-int main(int argc, char *argv[])
+int32_t main(int32_t argc, char *argv[])
 {
     printf("\nDNS perftest started\n");
 
-    for (int i = 1; i < argc; i++) {
+    for (int32_t i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-file")) {
             if (i != argc - 1) {
                 if (strlen(argv[i + 1]) < PATH_MAX - 100) {
@@ -285,6 +293,10 @@ int main(int argc, char *argv[])
             }
             continue;
         }
+        if (!strcmp(argv[i], "-save")) {
+            is_save = 1;
+            continue;
+        }
         printf("Unknown command %s\n", argv[i]);
         print_help();
     }
@@ -325,6 +337,14 @@ int main(int argc, char *argv[])
     if (!fp) {
         printf("Error opening file %s\n", domains_file_path);
         return 0;
+    }
+
+    if (is_save) {
+        cache_fp = fopen("cache.data", "w");
+        if (!cache_fp) {
+            printf("Error opening file cache.data\n");
+            return 0;
+        }
     }
 
     repeater_addr.sin_family = AF_INET;
@@ -388,7 +408,7 @@ int main(int argc, char *argv[])
             exit_wait = 0;
         }
 
-        if (exit_wait > EXIT_WAIT_SEC) {
+        if (exit_wait >= EXIT_WAIT_SEC) {
             return 0;
         }
 
