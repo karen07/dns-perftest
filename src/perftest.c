@@ -25,10 +25,8 @@ void print_help(void)
 {
     printf("Commands:\n"
            "-file /example.txt            Domains file path\n"
-           "-DNS_IP 0.0.0.0               DNS IP\n"
-           "-DNS_port 00                  DNS port\n"
-           "-listen_IP 0.0.0.0            Listen IP\n"
-           "-listen_port 0000             Listen port\n"
+           "-DNS 0.0.0.0:00               DNS address\n"
+           "-listen 0.0.0.0:00            Listen address\n"
            "-RPS 00000                    Request per second\n");
     exit(EXIT_FAILURE);
 }
@@ -83,21 +81,145 @@ void *send_dns(__attribute__((unused)) void *arg)
     return NULL;
 }
 
+int32_t get_url_from_packet(memory_t *receive_msg, char *cur_pos_ptr, char **new_cur_pos_ptr,
+                            memory_t *url)
+{
+    uint8_t two_bit_mark = FIRST_TWO_BITS_UINT8;
+    int32_t part_len = 0;
+    int32_t url_len = 0;
+
+    int32_t jump_count = 0;
+
+    *new_cur_pos_ptr = NULL;
+    char *receive_msg_end = receive_msg->data + receive_msg->size;
+
+    while (true) {
+        if (part_len == 0) {
+            if (cur_pos_ptr + sizeof(uint8_t) > receive_msg_end) {
+                return 1;
+            }
+            uint8_t first_byte_data = (*cur_pos_ptr) & (~two_bit_mark);
+
+            if ((*cur_pos_ptr & two_bit_mark) == 0) {
+                part_len = first_byte_data;
+                cur_pos_ptr++;
+                if (part_len == 0) {
+                    break;
+                } else {
+                    if (url_len >= (int32_t)url->max_size) {
+                        return 2;
+                    }
+                    url->data[url_len++] = '.';
+                }
+            } else if ((*cur_pos_ptr & two_bit_mark) == two_bit_mark) {
+                if (cur_pos_ptr + sizeof(uint16_t) > receive_msg_end) {
+                    return 3;
+                }
+                if (*new_cur_pos_ptr == NULL) {
+                    *new_cur_pos_ptr = cur_pos_ptr + 2;
+                }
+                uint8_t second_byte_data = *(cur_pos_ptr + 1);
+                int32_t padding = 256 * first_byte_data + second_byte_data;
+                cur_pos_ptr = receive_msg->data + padding;
+                if (jump_count++ > 100) {
+                    return 4;
+                }
+            } else {
+                return 5;
+            }
+        } else {
+            if (cur_pos_ptr + sizeof(uint8_t) > receive_msg_end) {
+                return 6;
+            }
+            if (url_len >= (int32_t)url->max_size) {
+                return 7;
+            }
+            url->data[url_len++] = *cur_pos_ptr;
+            cur_pos_ptr++;
+            part_len--;
+        }
+    }
+
+    if (*new_cur_pos_ptr == NULL) {
+        *new_cur_pos_ptr = cur_pos_ptr;
+    }
+
+    if (url_len >= (int32_t)url->max_size) {
+        return 8;
+    }
+    url->data[url_len] = 0;
+    url->size = url_len;
+
+    return 0;
+}
+
 void *read_dns(__attribute__((unused)) void *arg)
 {
-    int32_t receive_msg_len = 0;
-    char receive_msg[PACKET_MAX_SIZE];
-
     struct sockaddr_in receive_DNS_addr;
     uint32_t receive_DNS_addr_length = sizeof(receive_DNS_addr);
 
-    while (1) {
-        receive_msg_len = recvfrom(repeater_socket, receive_msg, PACKET_MAX_SIZE, 0,
-                                   (struct sockaddr *)&receive_DNS_addr, &receive_DNS_addr_length);
+    memory_t receive_msg;
+    receive_msg.size = 0;
+    receive_msg.max_size = PACKET_MAX_SIZE;
+    receive_msg.data = (char *)malloc(receive_msg.max_size * sizeof(char));
+    if (receive_msg.data == 0) {
+        printf("No free memory for receive_msg from DNS\n");
+        exit(EXIT_FAILURE);
+    }
 
-        if (receive_msg_len > 0) {
-            readed++;
+    memory_t que_url;
+    que_url.size = 0;
+    que_url.max_size = URL_MAX_SIZE;
+    que_url.data = (char *)malloc(que_url.max_size * sizeof(char));
+    if (que_url.data == 0) {
+        printf("No free memory for que_url\n");
+        exit(EXIT_FAILURE);
+    }
+
+    while (true) {
+        receive_msg.size = recvfrom(repeater_socket, receive_msg.data, receive_msg.max_size, 0,
+                                    (struct sockaddr *)&receive_DNS_addr, &receive_DNS_addr_length);
+
+        readed++;
+
+        char *cur_pos_ptr = receive_msg.data;
+        char *receive_msg_end = receive_msg.data + receive_msg.size;
+
+        // DNS HEADER
+        if (cur_pos_ptr + sizeof(dns_header_t) > receive_msg_end) {
+            continue;
         }
+
+        dns_header_t *header = (dns_header_t *)cur_pos_ptr;
+
+        uint16_t first_bit_mark = FIRST_BIT_UINT16;
+        uint16_t flags = ntohs(header->flags);
+        if ((flags & first_bit_mark) == 0) {
+            continue;
+        }
+
+        uint16_t quest_count = ntohs(header->quest);
+        if (quest_count != 1) {
+            continue;
+        }
+
+        uint16_t ans_count = ntohs(header->ans);
+        if (ans_count == 0) {
+            continue;
+        }
+
+        cur_pos_ptr += sizeof(dns_header_t);
+        // DNS HEADER
+
+        // QUE URL
+        char *que_url_start = cur_pos_ptr;
+        char *que_url_end = NULL;
+        if (get_url_from_packet(&receive_msg, que_url_start, &que_url_end, &que_url) != 0) {
+            continue;
+        }
+        cur_pos_ptr = que_url_end;
+
+        //printf("%s\n", que_url.data + 1);
     }
 
     return NULL;
@@ -110,55 +232,55 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-file")) {
             if (i != argc - 1) {
-                printf("Get urls from file %s\n", argv[i + 1]);
-                if (strlen(argv[i + 1]) < PATH_MAX) {
+                if (strlen(argv[i + 1]) < PATH_MAX - 100) {
                     is_domains_file_path = 1;
                     strcpy(domains_file_path, argv[i + 1]);
+                    printf("Get urls from file %s\n", domains_file_path);
                 }
                 i++;
             }
             continue;
         }
-        if (!strcmp(argv[i], "-DNS_IP")) {
+        if (!strcmp(argv[i], "-DNS")) {
             if (i != argc - 1) {
-                printf("DNS IP %s\n", argv[i + 1]);
-                if (strlen(argv[i + 1]) < INET_ADDRSTRLEN) {
-                    dns_ip = inet_addr(argv[i + 1]);
+                char *colon_ptr = strchr(argv[i + 1], ':');
+                if (colon_ptr) {
+                    sscanf(colon_ptr + 1, "%hu", &dns_port);
+                    *colon_ptr = 0;
+                    if (strlen(argv[i + 1]) < INET_ADDRSTRLEN) {
+                        dns_ip = inet_addr(argv[i + 1]);
+                        struct in_addr dns_ip_in_addr;
+                        dns_ip_in_addr.s_addr = dns_ip;
+                        printf("DNS %s:%hu\n", inet_ntoa(dns_ip_in_addr), dns_port);
+                    }
+                    *colon_ptr = ':';
                 }
                 i++;
             }
             continue;
         }
-        if (!strcmp(argv[i], "-DNS_port")) {
+        if (!strcmp(argv[i], "-listen")) {
             if (i != argc - 1) {
-                printf("DNS port %s\n", argv[i + 1]);
-                sscanf(argv[i + 1], "%hu", &dns_port);
-                i++;
-            }
-            continue;
-        }
-        if (!strcmp(argv[i], "-listen_IP")) {
-            if (i != argc - 1) {
-                printf("Listen IP %s\n", argv[i + 1]);
-                if (strlen(argv[i + 1]) < INET_ADDRSTRLEN) {
-                    listen_ip = inet_addr(argv[i + 1]);
+                char *colon_ptr = strchr(argv[i + 1], ':');
+                if (colon_ptr) {
+                    sscanf(colon_ptr + 1, "%hu", &listen_port);
+                    *colon_ptr = 0;
+                    if (strlen(argv[i + 1]) < INET_ADDRSTRLEN) {
+                        listen_ip = inet_addr(argv[i + 1]);
+                        struct in_addr listen_ip_in_addr;
+                        listen_ip_in_addr.s_addr = listen_ip;
+                        printf("Listen %s:%hu\n", inet_ntoa(listen_ip_in_addr), listen_port);
+                    }
+                    *colon_ptr = ':';
                 }
-                i++;
-            }
-            continue;
-        }
-        if (!strcmp(argv[i], "-listen_port")) {
-            if (i != argc - 1) {
-                printf("Listen port %s\n", argv[i + 1]);
-                sscanf(argv[i + 1], "%hu", &listen_port);
                 i++;
             }
             continue;
         }
         if (!strcmp(argv[i], "-RPS")) {
             if (i != argc - 1) {
-                printf("RPS %s\n", argv[i + 1]);
                 sscanf(argv[i + 1], "%u", &rps);
+                printf("RPS %d\n", rps);
                 i++;
             }
             continue;
@@ -249,14 +371,26 @@ int main(int argc, char *argv[])
     int32_t sended_old = 0;
     int32_t readed_old = 0;
 
+    int32_t exit_wait = 0;
+
     printf("Min:Sec Send_RPS Read_RPS Sended Readed Diff \n");
-    while (1) {
+    while (true) {
         sleep(1);
 
         time_t now = time(NULL);
         struct tm *tm_struct = localtime(&now);
         printf("%d:%d %d %d %d %d %d\n", tm_struct->tm_min, tm_struct->tm_sec, sended - sended_old,
                readed - readed_old, sended, readed, sended - readed);
+
+        if (readed == readed_old) {
+            exit_wait++;
+        } else {
+            exit_wait = 0;
+        }
+
+        if (exit_wait > EXIT_WAIT_SEC) {
+            return 0;
+        }
 
         coeff *= (1.0 * rps) / (sended - sended_old);
 
