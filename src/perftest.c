@@ -393,14 +393,16 @@ int32_t main(int32_t argc, char *argv[])
 
     int32_t exit_wait = 0;
 
-    printf("Min:Sec Send_RPS Read_RPS Sended Readed Diff \n");
+    printf("Send_RPS Read_RPS Sended Readed Diff\n");
     while (true) {
         sleep(1);
 
         time_t now = time(NULL);
         struct tm *tm_struct = localtime(&now);
-        printf("%d:%d %d %d %d %d %d\n", tm_struct->tm_min, tm_struct->tm_sec, sended - sended_old,
-               readed - readed_old, sended, readed, sended - readed);
+        printf("\n%02d.%02d.%04d %02d:%02d:%02d\n", tm_struct->tm_mday, tm_struct->tm_mon + 1,
+               tm_struct->tm_year + 1900, tm_struct->tm_hour, tm_struct->tm_min, tm_struct->tm_sec);
+        printf("%08d %08d %06d %06d %04d\n", sended - sended_old, readed - readed_old, sended,
+               readed, sended - readed);
 
         if (readed == readed_old) {
             exit_wait++;
