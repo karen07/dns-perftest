@@ -1,4 +1,4 @@
-#include "perftest.h"
+#include "dns-perf-test.h"
 
 FILE *fp;
 FILE *cache_fp;
@@ -235,7 +235,7 @@ void *read_dns(__attribute__((unused)) void *arg)
 
 int32_t main(int32_t argc, char *argv[])
 {
-    printf("\nDNS perftest started\n");
+    printf("\nDNS perf test started\n");
 
     for (int32_t i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-file")) {

@@ -1,1 +1,1 @@
-# dns-perftest
+# dns-perf-test
