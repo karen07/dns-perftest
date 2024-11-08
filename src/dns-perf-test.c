@@ -2,6 +2,7 @@
 
 FILE *fp;
 FILE *cache_fp;
+FILE *urls_fp;
 
 uint32_t dns_ip;
 uint16_t dns_port;
@@ -227,6 +228,7 @@ void *read_dns(__attribute__((unused)) void *arg)
             fwrite(que_url.data + 1, sizeof(char), strlen(que_url.data), cache_fp);
             fwrite(&receive_msg.size, sizeof(int32_t), 1, cache_fp);
             fwrite(receive_msg.data, sizeof(char), receive_msg.size, cache_fp);
+            fprintf(urls_fp, "%s\n", que_url.data + 1);
         }
     }
 
@@ -343,6 +345,11 @@ int32_t main(int32_t argc, char *argv[])
         cache_fp = fopen("cache.data", "w");
         if (!cache_fp) {
             printf("Error opening file cache.data\n");
+            return 0;
+        }
+        urls_fp = fopen("urls.txt", "w");
+        if (!urls_fp) {
+            printf("Error opening file urls.txt\n");
             return 0;
         }
     }
